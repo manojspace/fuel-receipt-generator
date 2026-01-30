@@ -192,138 +192,144 @@ export function getFieldsBySection(): Record<string, FieldConfig[]> {
 /**
  * Generates the receipt HTML with dynamic values injected
  * This function takes the template HTML and replaces placeholder values with actual data
+ * @param data - Receipt data to inject
+ * @param designStyles - Optional custom styles for different receipt designs
  */
-export function generateReceiptHTML(data: ReceiptData): string {
+export function generateReceiptHTML(data: ReceiptData, designStyles?: string): string {
+  const styles =
+    designStyles ||
+    `
+    @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Inter:wght@700;900&display=swap');
+    
+    :root {
+        --paper: #f0f0eb;
+        --ink: #2a2a2a;
+    }
+
+    body {
+        background-color: #1a1a1a;
+        display: flex;
+        justify-content: center;
+        padding: 20px 10px;
+        margin: 0;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    .receipt {
+        width: 280px; 
+        background-color: var(--paper);
+        color: var(--ink);
+        padding: 20px 15px;
+        position: relative;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        font-family: "Courier New", Courier, monospace;
+        font-size: 12px;
+        line-height: 1.1;
+        letter-spacing: -0.3px;
+        background-image: 
+            url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.1'/%3E%3C/svg%3E");
+    }
+
+    .receipt::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(
+            165deg,
+            rgba(0,0,0,0) 24%,
+            rgba(0,0,0,0.04) 25%,
+            rgba(255,255,255,0.3) 25.5%,
+            rgba(0,0,0,0) 27%,
+            rgba(0,0,0,0) 54%,
+            rgba(0,0,0,0.03) 55%,
+            rgba(255,255,255,0.2) 55.5%,
+            rgba(0,0,0,0) 57%,
+            rgba(0,0,0,0) 84%,
+            rgba(0,0,0,0.03) 85%,
+            rgba(255,255,255,0.2) 85.5%,
+            rgba(0,0,0,0) 87%
+        );
+        pointer-events: none;
+        z-index: 5;
+    }
+
+    .tear-top, .tear-bottom {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 8px;
+        background-color: #1a1a1a;
+        z-index: 10;
+    }
+    .tear-top { top: 0; clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 98% 30%, 96% 100%, 94% 30%, 92% 100%, 90% 30%, 88% 100%, 86% 30%, 84% 100%, 82% 30%, 80% 100%, 78% 30%, 76% 100%, 74% 30%, 72% 100%, 70% 30%, 68% 100%, 66% 30%, 64% 100%, 62% 30%, 60% 100%, 58% 30%, 56% 100%, 54% 30%, 52% 100%, 50% 30%, 48% 100%, 46% 30%, 44% 100%, 42% 30%, 40% 100%, 38% 30%, 36% 100%, 34% 30%, 32% 100%, 30% 30%, 28% 100%, 26% 30%, 24% 100%, 22% 30%, 20% 100%, 18% 30%, 16% 100%, 14% 30%, 12% 100%, 10% 30%, 8% 100%, 6% 30%, 4% 100%, 2% 30%, 0% 100%); }
+    .tear-bottom { bottom: 0; clip-path: polygon(0% 100%, 100% 100%, 100% 0%, 98% 70%, 96% 0%, 94% 70%, 92% 0%, 90% 70%, 88% 0%, 86% 70%, 84% 0%, 82% 70%, 80% 0%, 78% 70%, 76% 0%, 74% 70%, 72% 0%, 70% 70%, 68% 0%, 66% 70%, 64% 0%, 62% 70%, 60% 0%, 58% 70%, 56% 0%, 54% 70%, 52% 0%, 50% 70%, 48% 0%, 46% 70%, 44% 0%, 42% 70%, 40% 0%, 38% 70%, 36% 0%, 34% 70%, 32% 0%, 30% 70%, 28% 0%, 26% 70%, 24% 0%, 22% 70%, 20% 0%, 18% 70%, 16% 0%, 14% 70%, 12% 0%, 10% 70%, 8% 0%, 6% 70%, 4% 0%, 2% 70%, 0% 0%); }
+
+    .header-logo { text-align: center; margin-bottom: 2px; }
+    .iocl-symbol { width: 60px; height: 60px; margin: 0 auto; display: block; }
+    .brand-text {
+        font-family: 'Inter', sans-serif;
+        font-weight: 800;
+        font-size: 20px;
+        text-align: center;
+        margin-bottom: 6px;
+        letter-spacing: -0.5px;
+    }
+
+    .center { text-align: center; }
+    .right { text-align: right; }
+    .bold { font-weight: bold; }
+    .row { display: flex; justify-content: space-between; margin: 1px 0; }
+    
+    .station-header {
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+        font-weight: bold;
+        line-height: 1.15;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+    }
+
+    .divider-dotted {
+        border-top: 1px dashed var(--ink);
+        margin: 4px 0;
+        opacity: 0.6;
+    }
+
+    .sale-banner {
+        font-size: 15px;
+        font-weight: bold;
+        margin: 6px 0;
+    }
+
+    .net-amount-row {
+        font-size: 14px;
+        font-weight: bold;
+        margin: 2px 0;
+    }
+
+    .fiserv-footer {
+        font-family: 'Inter', sans-serif;
+        font-weight: 900;
+        font-size: 32px;
+        letter-spacing: -3px;
+        margin-top: 8px;
+        opacity: 0.9;
+    }
+
+    @media print {
+        body { background: white !important; padding: 0 !important; margin: 0 !important; }
+        .receipt { box-shadow: none !important; width: 75mm !important; border: none !important; transform: none !important; }
+        .tear-top, .tear-bottom, .receipt::before, .receipt::after { display: none !important; }
+    }
+  `;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IndianOil Thermal Receipt</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Inter:wght@700;900&display=swap');
-        
-        :root {
-            --paper: #f0f0eb;
-            --ink: #2a2a2a;
-        }
-
-        body {
-            background-color: #1a1a1a;
-            display: flex;
-            justify-content: center;
-            padding: 20px 10px;
-            margin: 0;
-            -webkit-font-smoothing: antialiased;
-        }
-
-        .receipt {
-            width: 280px; 
-            background-color: var(--paper);
-            color: var(--ink);
-            padding: 20px 15px;
-            position: relative;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            font-family: "Courier New", Courier, monospace;
-            font-size: 12px;
-            line-height: 1.1;
-            letter-spacing: -0.3px;
-            background-image: 
-                url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.1'/%3E%3C/svg%3E");
-        }
-
-        .receipt::before {
-            content: "";
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: linear-gradient(
-                165deg,
-                rgba(0,0,0,0) 24%,
-                rgba(0,0,0,0.04) 25%,
-                rgba(255,255,255,0.3) 25.5%,
-                rgba(0,0,0,0) 27%,
-                rgba(0,0,0,0) 54%,
-                rgba(0,0,0,0.03) 55%,
-                rgba(255,255,255,0.2) 55.5%,
-                rgba(0,0,0,0) 57%,
-                rgba(0,0,0,0) 84%,
-                rgba(0,0,0,0.03) 85%,
-                rgba(255,255,255,0.2) 85.5%,
-                rgba(0,0,0,0) 87%
-            );
-            pointer-events: none;
-            z-index: 5;
-        }
-
-        .tear-top, .tear-bottom {
-            position: absolute;
-            left: 0;
-            right: 0;
-            height: 8px;
-            background-color: #1a1a1a;
-            z-index: 10;
-        }
-        .tear-top { top: 0; clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 98% 30%, 96% 100%, 94% 30%, 92% 100%, 90% 30%, 88% 100%, 86% 30%, 84% 100%, 82% 30%, 80% 100%, 78% 30%, 76% 100%, 74% 30%, 72% 100%, 70% 30%, 68% 100%, 66% 30%, 64% 100%, 62% 30%, 60% 100%, 58% 30%, 56% 100%, 54% 30%, 52% 100%, 50% 30%, 48% 100%, 46% 30%, 44% 100%, 42% 30%, 40% 100%, 38% 30%, 36% 100%, 34% 30%, 32% 100%, 30% 30%, 28% 100%, 26% 30%, 24% 100%, 22% 30%, 20% 100%, 18% 30%, 16% 100%, 14% 30%, 12% 100%, 10% 30%, 8% 100%, 6% 30%, 4% 100%, 2% 30%, 0% 100%); }
-        .tear-bottom { bottom: 0; clip-path: polygon(0% 100%, 100% 100%, 100% 0%, 98% 70%, 96% 0%, 94% 70%, 92% 0%, 90% 70%, 88% 0%, 86% 70%, 84% 0%, 82% 70%, 80% 0%, 78% 70%, 76% 0%, 74% 70%, 72% 0%, 70% 70%, 68% 0%, 66% 70%, 64% 0%, 62% 70%, 60% 0%, 58% 70%, 56% 0%, 54% 70%, 52% 0%, 50% 70%, 48% 0%, 46% 70%, 44% 0%, 42% 70%, 40% 0%, 38% 70%, 36% 0%, 34% 70%, 32% 0%, 30% 70%, 28% 0%, 26% 70%, 24% 0%, 22% 70%, 20% 0%, 18% 70%, 16% 0%, 14% 70%, 12% 0%, 10% 70%, 8% 0%, 6% 70%, 4% 0%, 2% 70%, 0% 0%); }
-
-        .header-logo { text-align: center; margin-bottom: 2px; }
-        .iocl-symbol { width: 60px; height: 60px; margin: 0 auto; }
-        .brand-text {
-            font-family: 'Inter', sans-serif;
-            font-weight: 800;
-            font-size: 20px;
-            text-align: center;
-            margin-bottom: 6px;
-            letter-spacing: -0.5px;
-        }
-
-        .center { text-align: center; }
-        .right { text-align: right; }
-        .bold { font-weight: bold; }
-        .row { display: flex; justify-content: space-between; margin: 1px 0; }
-        
-        .station-header {
-            font-family: Arial, sans-serif;
-            font-size: 12px;
-            font-weight: bold;
-            line-height: 1.15;
-            margin-bottom: 6px;
-            text-transform: uppercase;
-        }
-
-        .divider-dotted {
-            border-top: 1px dashed var(--ink);
-            margin: 4px 0;
-            opacity: 0.6;
-        }
-
-        .sale-banner {
-            font-size: 15px;
-            font-weight: bold;
-            margin: 6px 0;
-        }
-
-        .net-amount-row {
-            font-size: 14px;
-            font-weight: bold;
-            margin: 2px 0;
-        }
-
-        .fiserv-footer {
-            font-family: 'Inter', sans-serif;
-            font-weight: 900;
-            font-size: 32px;
-            letter-spacing: -3px;
-            margin-top: 8px;
-            opacity: 0.9;
-        }
-
-        @media print {
-            body { background: white; padding: 0; }
-            .receipt { box-shadow: none; width: 75mm; border: none; }
-            .tear-top, .tear-bottom, .receipt::before { display: none; }
-        }
-    </style>
+    <style>${styles}</style>
 </head>
 <body>
 

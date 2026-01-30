@@ -1,18 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import FormPanel from '@/components/FormPanel';
 import ReceiptPreview from '@/components/ReceiptPreview';
 import Toolbar from '@/components/Toolbar';
+import { initDatadog, trackDesignChange, trackPageView } from '@/lib/logger';
+import { type ReceiptDesign, receiptDesigns } from '@/lib/receiptDesigns';
 import { type ReceiptData, defaultReceiptData } from '@/lib/receiptMapping';
 
 export default function Home() {
   const [receiptData, setReceiptData] = useState<ReceiptData>(defaultReceiptData);
+  const [selectedDesign, setSelectedDesign] = useState<ReceiptDesign>(receiptDesigns[0]);
+
+  useEffect(() => {
+    initDatadog();
+    trackPageView();
+  }, []);
 
   const handleFieldChange = (field: keyof ReceiptData, value: string) => {
-    setReceiptData((prev) => ({
-      ...prev,
+    setReceiptData((previous) => ({
+      ...previous,
       [field]: value,
     }));
   };
@@ -21,14 +29,21 @@ export default function Home() {
     setReceiptData(defaultReceiptData);
   };
 
+  const handleDesignChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const design = receiptDesigns.find((d) => d.id === event.target.value) || receiptDesigns[0];
+    setSelectedDesign(design);
+    trackDesignChange(design.name);
+  };
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20">
+              <div
+                className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20"
+                aria-hidden="true">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
@@ -43,24 +58,24 @@ export default function Home() {
                 <p className="text-xs text-slate-500 hidden sm:block">Create professional thermal receipts</p>
               </div>
             </div>
-            <Toolbar receiptData={receiptData} />
+            <Toolbar />
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="flex flex-col lg:flex-row gap-6">
-          {/* Form Panel - Left Side */}
-          <aside className="w-full lg:w-[420px] flex-shrink-0">
+          <aside className="w-full lg:w-[420px] flex-shrink-0" aria-label="Receipt form">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="p-4 border-b border-slate-100 bg-slate-50/50">
                 <div className="flex items-center justify-between">
                   <h2 className="font-semibold text-slate-900">Receipt Details</h2>
                   <button
+                    type="button"
                     onClick={handleResetForm}
-                    className="text-sm text-slate-500 hover:text-slate-700 transition-colors flex items-center gap-1">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    className="text-sm text-slate-500 hover:text-slate-700 transition-colors flex items-center gap-1"
+                    aria-label="Reset form to default values">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -78,22 +93,41 @@ export default function Home() {
             </div>
           </aside>
 
-          {/* Receipt Preview - Right Side */}
-          <section className="flex-1 lg:sticky lg:top-24 lg:self-start">
+          <section className="flex-1 lg:sticky lg:top-24 lg:self-start" aria-label="Receipt preview">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                <h2 className="font-semibold text-slate-900">Live Preview</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Changes update instantly</p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-semibold text-slate-900">Live Preview</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Changes update instantly</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="design-select" className="text-sm text-slate-600">
+                      Style:
+                    </label>
+                    <select
+                      id="design-select"
+                      value={selectedDesign.id}
+                      onChange={handleDesignChange}
+                      className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 transition-all"
+                      aria-label="Select receipt design style">
+                      {receiptDesigns.map((design) => (
+                        <option key={design.id} value={design.id}>
+                          {design.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
               <div className="p-6 bg-slate-800 min-h-[600px] flex items-start justify-center">
-                <ReceiptPreview receiptData={receiptData} />
+                <ReceiptPreview receiptData={receiptData} designStyles={selectedDesign.styles} />
               </div>
             </div>
           </section>
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="mt-auto py-6 text-center text-sm text-slate-500">
         <p>© {new Date().getFullYear()} Fuel Receipt Generator. For demonstration purposes only.</p>
       </footer>

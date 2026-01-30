@@ -1,24 +1,74 @@
 /**
- * PDF Generation Module
+ * PDF, Image, and Print Generation Module
  *
- * Handles client-side PDF generation using html2canvas and jsPDF.
- * Renders the receipt preview exactly as shown in the UI.
+ * Handles client-side PDF/image generation using html2canvas and jsPDF.
+ * Renders the receipt preview exactly as shown in the UI with full fidelity.
  */
 
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
-export type PDFGenerationOptions = {
+export type ExportOptions = {
   filename?: string;
   scale?: number;
   quality?: number;
 };
 
-const defaultOptions: PDFGenerationOptions = {
-  filename: 'fuel-receipt.pdf',
-  scale: 2,
+const defaultOptions: ExportOptions = {
+  filename: 'fuel-receipt',
+  scale: 3,
   quality: 1,
 };
+
+/**
+ * Captures the receipt as a canvas with exact visual fidelity
+ */
+async function captureReceiptCanvas(elementId: string, scale: number): Promise<HTMLCanvasElement> {
+  const element = document.querySelector(`#${elementId}`);
+  if (!element) {
+    throw new Error(`Element with ID "${elementId}" not found`);
+  }
+
+  const iframe = element.querySelector('iframe') as HTMLIFrameElement;
+  if (!iframe?.contentDocument?.body) {
+    throw new Error('Receipt iframe not found or not accessible');
+  }
+
+  const iframeDocument = iframe.contentDocument;
+  const receiptElement = iframeDocument.querySelector('.receipt') as HTMLElement;
+  if (!receiptElement) {
+    throw new Error('Receipt element not found in iframe');
+  }
+
+  // Get the body element which contains the full receipt with background
+  const bodyElement = iframeDocument.body;
+
+  // Wait for fonts to load
+  await document.fonts.ready;
+  if (iframeDocument.fonts) {
+    await iframeDocument.fonts.ready;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  // Capture the entire body to get the exact visual representation
+  return await html2canvas(bodyElement, {
+    scale,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: null,
+    logging: false,
+    width: bodyElement.scrollWidth,
+    height: bodyElement.scrollHeight,
+    onclone: (clonedDocument) => {
+      // Ensure SVG elements are properly rendered
+      const svgs = clonedDocument.querySelectorAll('svg');
+      svgs.forEach((svg) => {
+        svg.setAttribute('width', svg.getAttribute('width') || '60');
+        svg.setAttribute('height', svg.getAttribute('height') || '60');
+      });
+    },
+  });
+}
 
 /**
  * Generates a PDF from the receipt preview element
@@ -26,88 +76,74 @@ const defaultOptions: PDFGenerationOptions = {
  * @param options - PDF generation options
  * @returns Promise that resolves when PDF is generated and downloaded
  */
-export async function generatePDF(elementId: string, options: PDFGenerationOptions = {}): Promise<void> {
+export async function generatePDF(elementId: string, options: ExportOptions = {}): Promise<void> {
   const mergedOptions = { ...defaultOptions, ...options };
 
-  const element = document.querySelector(`#${elementId}`);
-  if (!element) {
-    throw new Error(`Element with ID "${elementId}" not found`);
-  }
+  const canvas = await captureReceiptCanvas(elementId, mergedOptions.scale || 3);
 
-  // Find the iframe and get its content
-  const iframe = element.querySelector('iframe');
-  if (!iframe?.contentDocument) {
-    throw new Error('Receipt iframe not found or not accessible');
-  }
+  // Calculate PDF dimensions to match the canvas aspect ratio exactly
+  // Use a slightly larger format to ensure no clipping
+  const pxToMm = 0.264_583;
+  const imgWidthMm = (canvas.width / (mergedOptions.scale || 3)) * pxToMm;
+  const imgHeightMm = (canvas.height / (mergedOptions.scale || 3)) * pxToMm;
 
-  const receiptElement = iframe.contentDocument.querySelector('.receipt') as HTMLElement;
-  if (!receiptElement) {
-    throw new Error('Receipt element not found in iframe');
-  }
-
-  // Create a temporary container for rendering
-  const tempContainer = document.createElement('div');
-  tempContainer.style.position = 'absolute';
-  tempContainer.style.left = '-9999px';
-  tempContainer.style.top = '0';
-  document.body.append(tempContainer);
-
-  // Clone the receipt content
-  const clonedReceipt = receiptElement.cloneNode(true) as HTMLElement;
-
-  // Copy computed styles
-  const styles = iframe.contentDocument.querySelectorAll('style');
-  styles.forEach((style) => {
-    const clonedStyle = style.cloneNode(true);
-    tempContainer.append(clonedStyle);
+  // Create PDF with exact dimensions (no extra padding)
+  const pdf = new jsPDF({
+    orientation: imgHeightMm > imgWidthMm ? 'portrait' : 'landscape',
+    unit: 'mm',
+    format: [imgWidthMm, imgHeightMm],
   });
 
-  // Add link for fonts
-  const fontLink = document.createElement('link');
-  fontLink.rel = 'stylesheet';
-  fontLink.href = 'https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Inter:wght@700;900&display=swap';
-  tempContainer.append(fontLink);
+  // Add the image to PDF - fill the entire page
+  const imgData = canvas.toDataURL('image/png', mergedOptions.quality);
+  pdf.addImage(imgData, 'PNG', 0, 0, imgWidthMm, imgHeightMm);
 
-  // Set background for the cloned receipt
-  clonedReceipt.style.margin = '0';
-  clonedReceipt.style.boxShadow = 'none';
-  tempContainer.append(clonedReceipt);
+  // Download the PDF
+  const filename = mergedOptions.filename?.endsWith('.pdf') ? mergedOptions.filename : `${mergedOptions.filename}.pdf`;
+  pdf.save(filename);
+}
 
-  // Wait for fonts to load
-  await document.fonts.ready;
-  await new Promise((resolve) => setTimeout(resolve, 100));
+/**
+ * Downloads the receipt as a PNG image
+ * @param elementId - The ID of the HTML element containing the receipt
+ * @param options - Image generation options
+ * @returns Promise that resolves when image is downloaded
+ */
+export async function downloadAsImage(elementId: string, options: ExportOptions = {}): Promise<void> {
+  const mergedOptions = { ...defaultOptions, ...options };
 
-  try {
-    // Generate canvas from the cloned receipt
-    const canvas = await html2canvas(clonedReceipt, {
-      scale: mergedOptions.scale,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#f0f0eb',
-      logging: false,
-    });
+  const canvas = await captureReceiptCanvas(elementId, mergedOptions.scale || 3);
 
-    // Calculate PDF dimensions (thermal receipt width: ~80mm)
-    const imgWidth = 80;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  // Convert to blob and download
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => {
+        if (b) {
+          resolve(b);
+        } else {
+          reject(new Error('Failed to create image blob'));
+        }
+      },
+      'image/png',
+      mergedOptions.quality,
+    );
+  });
 
-    // Create PDF
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: [imgWidth, imgHeight + 10],
-    });
+  // Create download link
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  const filename = mergedOptions.filename?.endsWith('.png') ? mergedOptions.filename : `${mergedOptions.filename}.png`;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.append(link);
+  link.click();
 
-    // Add the image to PDF
-    const imgData = canvas.toDataURL('image/png', mergedOptions.quality);
-    pdf.addImage(imgData, 'PNG', 0, 5, imgWidth, imgHeight);
-
-    // Download the PDF
-    pdf.save(mergedOptions.filename);
-  } finally {
-    // Cleanup
-    tempContainer.remove();
-  }
+  // Cleanup
+  setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 100);
 }
 
 /**
@@ -120,12 +156,44 @@ export function printReceipt(elementId: string): void {
     throw new Error(`Element with ID "${elementId}" not found`);
   }
 
-  const iframe = element.querySelector('iframe');
+  const iframe = element.querySelector('iframe') as HTMLIFrameElement;
   if (!iframe?.contentWindow) {
     throw new Error('Receipt iframe not found or not accessible');
   }
 
-  // Focus the iframe and trigger print
-  iframe.contentWindow.focus();
-  iframe.contentWindow.print();
+  // Create a print-friendly version in a new window for better control
+  const printWindow = window.open('', '_blank', 'width=400,height=800');
+  if (!printWindow) {
+    // Fallback to iframe print if popup blocked
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    return;
+  }
+
+  // Get the iframe content
+  const iframeDocument = iframe.contentDocument;
+  if (!iframeDocument) {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    return;
+  }
+
+  // Write the content to the new window
+  // eslint-disable-next-line sonarjs/deprecation -- document.write is required for print window content injection
+  printWindow.document.write(iframeDocument.documentElement.outerHTML);
+  printWindow.document.close();
+
+  // Wait for content to load then print
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+    printWindow.onafterprint = () => printWindow.close();
+  };
+
+  // Fallback close after timeout
+  setTimeout(() => {
+    if (!printWindow.closed) {
+      printWindow.print();
+    }
+  }, 500);
 }
