@@ -1,0 +1,107 @@
+name: 👤 Vivek Approval Check
+
+on:
+  pull_request:
+    branches:
+      - master
+      - main
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  check-vivek-approval:
+    name: 🔍 Check Vivek Approval Status
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📝 Check and Update Label
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const LABEL_NAME = 'Awaiting Vivek Approval';
+            const REQUIRED_REVIEWER = 'vivek9563';
+            
+            let prNumber;
+            
+            if (context.eventName === 'pull_request_review') {
+              prNumber = context.payload.pull_request.number;
+            } else {
+              prNumber = context.payload.pull_request.number;
+            }
+            
+            // Get all reviews for this PR
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            // Check if vivek9563 has approved
+            const vivekApproved = reviews.some(review => 
+              review.user.login.toLowerCase() === REQUIRED_REVIEWER.toLowerCase() && 
+              review.state === 'APPROVED'
+            );
+            
+            // Get current labels
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            const hasLabel = pr.labels.some(label => label.name === LABEL_NAME);
+            
+            console.log(`PR #${prNumber}`);
+            console.log(`Vivek approved: ${vivekApproved}`);
+            console.log(`Has label: ${hasLabel}`);
+            
+            if (!vivekApproved && !hasLabel) {
+              // Add the label
+              try {
+                // First, ensure the label exists
+                try {
+                  await github.rest.issues.getLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: LABEL_NAME
+                  });
+                } catch (e) {
+                  // Create the label if it doesn't exist
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: LABEL_NAME,
+                    color: 'FFA500',
+                    description: 'PR is awaiting approval from Vivek (QA)'
+                  });
+                }
+                
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  labels: [LABEL_NAME]
+                });
+                console.log(`Added label: ${LABEL_NAME}`);
+              } catch (error) {
+                console.log(`Error adding label: ${error.message}`);
+              }
+            } else if (vivekApproved && hasLabel) {
+              // Remove the label
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  name: LABEL_NAME
+                });
+                console.log(`Removed label: ${LABEL_NAME}`);
+              } catch (error) {
+                console.log(`Error removing label: ${error.message}`);
+              }
+            }

@@ -1,0 +1,100 @@
+name: 🛠️ Code Quality Check
+on:
+  pull_request:
+    branches:
+      - '*'
+      - '**'
+  push:
+    branches:
+      - master
+
+jobs:
+  eslint-check-pull-request:
+    name: 🔍 ESLint Check - Pull Request
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Fetch Secrets from Infisical
+      - name: 🔐 Fetch Infisical Secrets
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          domain: 'https://app.infisical.com'
+          method: 'universal'
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          env-slug: 'development'
+          project-slug: 'vedak-dev'
+          export-type: 'env'
+
+      # Create .npmrc using the injected NPM_TOKEN secret
+      - name: 📄 Create .npmrc
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ env.NPM_TOKEN }}" > ~/.npmrc
+          echo "@team_vedak:registry=https://registry.npmjs.org/" >> ~/.npmrc
+
+      - name: 📥 Install dependencies
+        run: npm install
+
+      - name: 🧹 ESLint Run
+        run: npm run lint:strict
+
+      - name: 👥 Add Manoj as Reviewer
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                reviewers: ['manojspace']
+              });
+            } catch (error) {
+              console.log("Reviewer might already be added or invalid username");
+            }
+
+  eslint-check-push:
+    name: 🔍 ESLint Check - Direct Push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Fetch Secrets from Infisical
+      - name: 🔐 Fetch Infisical Secrets
+        uses: Infisical/secrets-action@v1.0.12
+        with:
+          domain: 'https://app.infisical.com'
+          method: 'universal'
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          env-slug: 'development'
+          project-slug: 'vedak-dev'
+          export-type: 'env'
+
+      # Create .npmrc using the injected NPM_TOKEN secret
+      - name: 📄 Create .npmrc
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ env.NPM_TOKEN }}" > ~/.npmrc
+          echo "@team_vedak:registry=https://registry.npmjs.org/" >> ~/.npmrc
+
+      - name: 📥 Install dependencies
+        run: npm install
+
+      - name: 🧹 ESLint Run
+        run: npm run lint:strict

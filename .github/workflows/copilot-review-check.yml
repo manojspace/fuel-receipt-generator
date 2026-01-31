@@ -1,0 +1,177 @@
+name: 🤖 Copilot Review Check
+
+on:
+  pull_request:
+    branches:
+      - master
+      - main
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  check-copilot-review:
+    name: 🔍 Check Copilot Review Status
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📝 Check and Update Title
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const PREFIX = 'Awaiting Copilot - ';
+            const COPILOT_BOT = 'copilot';
+            
+            let prNumber;
+            let isPushEvent = false;
+            
+            if (context.eventName === 'pull_request_review') {
+              prNumber = context.payload.pull_request.number;
+            } else {
+              prNumber = context.payload.pull_request.number;
+              // Check if this is a synchronize event (new commit pushed)
+              isPushEvent = context.payload.action === 'synchronize';
+            }
+            
+            // Get PR details
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            const currentTitle = pr.title;
+            const headSha = pr.head.sha;
+            
+            // Get requested reviewers
+            const { data: reviewRequests } = await github.rest.pulls.listRequestedReviewers({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            // Get all reviews
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            // Check if Copilot is in requested reviewers
+            const copilotRequested = reviewRequests.users.some(user => 
+              user.login.toLowerCase().includes(COPILOT_BOT)
+            );
+            
+            // Check if Copilot has reviewed (and the review is on the latest commit)
+            const copilotReviewed = reviews.some(review => 
+              review.user.login.toLowerCase().includes(COPILOT_BOT) &&
+              review.commit_id === headSha
+            );
+            
+            // Also check teams for Copilot
+            const copilotTeamRequested = reviewRequests.teams?.some(team =>
+              team.slug.toLowerCase().includes(COPILOT_BOT)
+            ) || false;
+            
+            const hasCopilotReview = copilotRequested || copilotReviewed || copilotTeamRequested;
+            
+            console.log(`PR #${prNumber}: "${currentTitle}"`);
+            console.log(`Head SHA: ${headSha}`);
+            console.log(`Is push event: ${isPushEvent}`);
+            console.log(`Copilot requested: ${copilotRequested}`);
+            console.log(`Copilot reviewed on latest: ${copilotReviewed}`);
+            console.log(`Copilot team requested: ${copilotTeamRequested}`);
+            console.log(`Has Copilot review: ${hasCopilotReview}`);
+            
+            if (!hasCopilotReview) {
+              // Add prefix if not already present
+              if (!currentTitle.startsWith(PREFIX)) {
+                // Handle other prefixes
+                let baseTitle = currentTitle
+                  .replace(/^ESLint FAILED - /, '')
+                  .replace(/^DETAILS MISSING - /, '');
+                
+                let prefixes = '';
+                if (currentTitle.includes('ESLint FAILED - ')) prefixes += 'ESLint FAILED - ';
+                if (currentTitle.includes('DETAILS MISSING - ')) prefixes += 'DETAILS MISSING - ';
+                
+                const newTitle = PREFIX + prefixes + baseTitle;
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  title: newTitle
+                });
+                console.log(`Updated title to: ${newTitle}`);
+              }
+              
+              // Add a comment if it's a new commit without Copilot review
+              if (isPushEvent) {
+                const commentBody = `## 🤖 Copilot Review Required\n\nA new commit was pushed. Please request a review from GitHub Copilot to ensure code quality.\n\nTo request Copilot review:\n1. Go to the "Reviewers" section on the right\n2. Search for and add "copilot" as a reviewer\n\n---\n*This check runs automatically on every push.*`;
+                
+                // Check if we already have a Copilot reminder comment
+                const { data: comments } = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber
+                });
+                
+                const existingComment = comments.find(c => 
+                  c.user.type === 'Bot' && 
+                  c.body.includes('Copilot Review Required')
+                );
+                
+                if (existingComment) {
+                  await github.rest.issues.updateComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: existingComment.id,
+                    body: commentBody
+                  });
+                } else {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: prNumber,
+                    body: commentBody
+                  });
+                }
+              }
+            } else {
+              // Remove prefix if present
+              if (currentTitle.startsWith(PREFIX)) {
+                const newTitle = currentTitle.replace(PREFIX, '');
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  title: newTitle
+                });
+                console.log(`Updated title to: ${newTitle}`);
+              }
+              
+              // Update comment to show Copilot review received
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber
+              });
+              
+              const existingComment = comments.find(c => 
+                c.user.type === 'Bot' && 
+                c.body.includes('Copilot Review')
+              );
+              
+              if (existingComment && existingComment.body.includes('Required')) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: '## ✅ Copilot Review Received\n\nGitHub Copilot has reviewed this PR.'
+                });
+              }
+            }

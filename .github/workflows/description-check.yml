@@ -1,0 +1,278 @@
+name: 📋 PR Description Validator
+
+on:
+  pull_request:
+    branches:
+      - master
+      - main
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  validate-description:
+    name: 🔍 Validate PR Description
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 📝 Check PR Description
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const PREFIX = 'DETAILS MISSING - ';
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+            const currentTitle = pr.title;
+            
+            // Template sections that must be filled (not just default text)
+            const defaultTexts = [
+              'Provide a concise, high-level summary of what this PR accomplishes.',
+              'Include motivation/context and describe the problem being solved.',
+              'List all related Jira tickets and issue links.',
+              'Explain any relevant background, reasoning, or architectural context.',
+              'Mention modules or services impacted.',
+              'Detailed, step-by-step guide to manually verify this PR.',
+              'This section is mandatory.',
+              'Provide screenshots or video links showing the change in action.',
+              '(Insert image or link here)',
+              'If no visual change, explain why this section is not applicable.'
+            ];
+            
+            // Required checkboxes that must be checked
+            const requiredCheckboxes = [
+              // Type of Change - at least one must be checked
+              'New Feature',
+              'Bug Fix',
+              'Code Refactor / Cleanup',
+              'Breaking Change',
+              'CI/CD or Build Change',
+              'Documentation Update',
+              'Configuration / Environment Change',
+              'Other (please describe)',
+              
+              // Validation & Review Checklist
+              'Code Quality (reviewed yourself in GitHub)',
+              'Reviewed by Copilot (AI/automated review)',
+              'ESLint / Prettier checks passed locally',
+              'Build succeeds locally without warnings',
+              
+              // QA Verification
+              'Tested by Vivek (QA)',
+              'Verified in staging or dev environment',
+              'Ready for merge to main / release branch',
+              'Datadog logs added',
+              'team-activity added',
+              
+              // Risk Assessment - at least one must be checked
+              'Low – Minor UI/UX or isolated change',
+              'Medium – Affects shared modules or logic',
+              'High – Impacts critical workflows or user data'
+            ];
+            
+            // Mandatory checkbox groups (at least one must be checked in each group)
+            const checkboxGroups = {
+              'Type of Change': [
+                'New Feature',
+                'Bug Fix',
+                'Code Refactor / Cleanup',
+                'Breaking Change',
+                'CI/CD or Build Change',
+                'Documentation Update',
+                'Configuration / Environment Change',
+                'Other (please describe)'
+              ],
+              'Validation & Review Checklist': [
+                'Code Quality (reviewed yourself in GitHub)',
+                'Reviewed by Copilot (AI/automated review)',
+                'ESLint / Prettier checks passed locally',
+                'Build succeeds locally without warnings'
+              ],
+              'QA Verification': [
+                'Tested by Vivek (QA)',
+                'Verified in staging or dev environment',
+                'Ready for merge to main / release branch',
+                'Datadog logs added',
+                'team-activity added'
+              ],
+              'Risk Assessment': [
+                'Low – Minor UI/UX or isolated change',
+                'Medium – Affects shared modules or logic',
+                'High – Impacts critical workflows or user data'
+              ]
+            };
+            
+            let issues = [];
+            
+            // Check if description is empty or too short
+            if (body.length < 100) {
+              issues.push('Description is too short (minimum 100 characters required)');
+            }
+            
+            // Check if default template text is still present (not replaced)
+            for (const defaultText of defaultTexts) {
+              if (body.includes(defaultText)) {
+                issues.push(`Default template text not replaced: "${defaultText.substring(0, 50)}..."`);
+              }
+            }
+            
+            // Check required sections exist
+            const requiredSections = [
+              '## Description',
+              '## Jira / PR Links',
+              '## Type of Change',
+              '## Context / Background',
+              '## Validation & Review Checklist',
+              '## QA Verification',
+              '## Risk Assessment',
+              '## Steps to Test',
+              '## Screenshots / Videos'
+            ];
+            
+            for (const section of requiredSections) {
+              if (!body.includes(section)) {
+                issues.push(`Missing required section: ${section}`);
+              }
+            }
+            
+            // Check each checkbox group - all checkboxes in mandatory groups must be checked
+            for (const [groupName, checkboxes] of Object.entries(checkboxGroups)) {
+              let checkedCount = 0;
+              let totalInGroup = 0;
+              
+              for (const checkbox of checkboxes) {
+                // Look for checked checkbox pattern
+                const checkedPattern = new RegExp(`\\[x\\]\\s*${checkbox.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+                const uncheckedPattern = new RegExp(`\\[\\s*\\]\\s*${checkbox.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+                
+                if (checkedPattern.test(body)) {
+                  checkedCount++;
+                  totalInGroup++;
+                } else if (uncheckedPattern.test(body)) {
+                  totalInGroup++;
+                }
+              }
+              
+              // For Type of Change and Risk Assessment, at least one must be checked
+              if (groupName === 'Type of Change' || groupName === 'Risk Assessment') {
+                if (checkedCount === 0 && totalInGroup > 0) {
+                  issues.push(`${groupName}: At least one checkbox must be checked`);
+                }
+              } else {
+                // For other groups, all checkboxes must be checked
+                if (checkedCount < totalInGroup && totalInGroup > 0) {
+                  issues.push(`${groupName}: All ${totalInGroup} checkboxes must be checked (found ${checkedCount} checked)`);
+                }
+              }
+              
+              // Check if checkboxes were removed
+              if (totalInGroup === 0 && checkboxes.length > 0) {
+                issues.push(`${groupName}: Checkboxes appear to be removed from template`);
+              }
+            }
+            
+            // Check for Jira link
+            const jiraPattern = /https:\/\/vedak\.atlassian\.net\/browse\/[A-Z]+-\d+/;
+            if (!jiraPattern.test(body)) {
+              issues.push('Missing Jira ticket link (format: https://vedak.atlassian.net/browse/XX-123)');
+            }
+            
+            console.log('Validation issues:', issues);
+            
+            const hasIssues = issues.length > 0;
+            
+            if (hasIssues) {
+              // Add prefix if not already present
+              if (!currentTitle.startsWith(PREFIX)) {
+                // Remove other prefixes first to avoid stacking
+                let cleanTitle = currentTitle
+                  .replace(/^ESLint FAILED - /, '')
+                  .replace(/^Awaiting Copilot - /, '');
+                
+                // Re-add other prefixes after our prefix
+                let prefixes = '';
+                if (currentTitle.includes('ESLint FAILED - ')) prefixes += 'ESLint FAILED - ';
+                if (currentTitle.includes('Awaiting Copilot - ')) prefixes += 'Awaiting Copilot - ';
+                
+                const newTitle = PREFIX + prefixes + cleanTitle;
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  title: newTitle
+                });
+                console.log(`Updated title to: ${newTitle}`);
+              }
+              
+              // Post comment with issues
+              const commentBody = `## ⚠️ PR Description Validation Failed\n\nPlease fix the following issues:\n\n${issues.map(i => `- ❌ ${i}`).join('\n')}\n\n---\n*This check runs automatically. Please update your PR description to match the template requirements.*`;
+              
+              // Check if we already have a validation comment
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number
+              });
+              
+              const existingComment = comments.find(c => 
+                c.user.type === 'Bot' && 
+                c.body.includes('PR Description Validation')
+              );
+              
+              if (existingComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: commentBody
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: commentBody
+                });
+              }
+              
+              core.setFailed('PR description validation failed');
+            } else {
+              // Remove prefix if present
+              if (currentTitle.startsWith(PREFIX)) {
+                const newTitle = currentTitle.replace(PREFIX, '');
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  title: newTitle
+                });
+                console.log(`Updated title to: ${newTitle}`);
+              }
+              
+              // Remove or update the validation comment to show success
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number
+              });
+              
+              const existingComment = comments.find(c => 
+                c.user.type === 'Bot' && 
+                c.body.includes('PR Description Validation')
+              );
+              
+              if (existingComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: '## ✅ PR Description Validation Passed\n\nAll required sections and checkboxes are properly filled out.'
+                });
+              }
+              
+              console.log('PR description validation passed');
+            }
