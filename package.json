@@ -13,7 +13,8 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
-    "analyze": "ANALYZE=true next build"
+    "analyze": "ANALYZE=true next build",
+    "install-d": "infisical run -- npm install"
   },
   "dependencies": {
     "@datadog/browser-logs": "^6.5.0",
